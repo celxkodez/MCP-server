@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "github-workflows": {
+      "url": "https://github-workflows-mcp.fly.dev/mcp/sse",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer ghp_your_github_token_here"
+      }
+    }
+  }
+}

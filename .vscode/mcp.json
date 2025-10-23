@@ -1,11 +1,12 @@
 {
-  "mcpServers": {
-    "github-workflows": {
-      "url": "http://localhost:8000/mcp/sse",
-      "transport": "sse",
+	"servers": {
+		"github-workflows": {
+			"url": "http://localhost:8000/sse",
+			"type": "sse",
       "headers": {
-        "Authorization": "Bearer ghp_your_github_token_here"
+        "Authorization": "Bearer token"
       }
-    }
-  }
+		}
+	},
+	"inputs": []
 }

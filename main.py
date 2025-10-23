@@ -1,21 +1,19 @@
 import os
 import json
 import logging
-from typing import Any, Dict, Optional
-from datetime import datetime
-
-from fastapi import FastAPI, Request, Header, HTTPException
-from fastapi.responses import StreamingResponse
-from sse_starlette.sse import EventSourceResponse
 import httpx
+import uvicorn
+from typing import Any, Dict, Optional, Sequence
+from datetime import datetime
+from dotenv import load_dotenv
+
+from fastapi import FastAPI, Request, HTTPException
+from sse_starlette.sse import EventSourceResponse
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
-from mcp.types import (
-    Tool,
-    TextContent,
-    CallToolResult,
-    ListToolsResult,
-)
+from mcp.types import Tool, TextContent
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -84,222 +82,220 @@ def create_mcp_server(github_token: str) -> Server:
     github = GitHubClient(github_token)
     
     @server.list_tools()
-    async def list_tools() -> ListToolsResult:
+    async def list_tools() -> list[Tool]:
         """List available tools"""
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="list_workflows",
-                    description="List all workflows in a GitHub repository",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner (username or organization)",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
+        return [
+            Tool(
+                name="list_workflows",
+                description="List all workflows in a GitHub repository",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner (username or organization)",
                         },
-                        "required": ["owner", "repo"],
-                    },
-                ),
-                Tool(
-                    name="trigger_workflow",
-                    description="Trigger a GitHub workflow dispatch event",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "workflow_id": {
-                                "type": "string",
-                                "description": "Workflow filename or ID (e.g., 'deploy.yml')",
-                            },
-                            "ref": {
-                                "type": "string",
-                                "description": "Git reference (branch or tag)",
-                                "default": "main",
-                            },
-                            "inputs": {
-                                "type": "object",
-                                "description": "Workflow inputs as key-value pairs",
-                                "additionalProperties": True,
-                            },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
                         },
-                        "required": ["owner", "repo", "workflow_id"],
                     },
-                ),
-                Tool(
-                    name="get_workflow_runs",
-                    description="Get recent workflow runs for a repository",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "workflow_id": {
-                                "type": "string",
-                                "description": "Optional: Filter by specific workflow file",
-                            },
-                            "status": {
-                                "type": "string",
-                                "enum": [
-                                    "completed",
-                                    "action_required",
-                                    "cancelled",
-                                    "failure",
-                                    "neutral",
-                                    "skipped",
-                                    "success",
-                                    "in_progress",
-                                    "queued",
-                                ],
-                                "description": "Optional: Filter by status",
-                            },
-                            "per_page": {
-                                "type": "number",
-                                "description": "Number of results (max 100)",
-                                "default": 10,
-                            },
+                    "required": ["owner", "repo"],
+                },
+            ),
+            Tool(
+                name="trigger_workflow",
+                description="Trigger a GitHub workflow dispatch event",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
                         },
-                        "required": ["owner", "repo"],
-                    },
-                ),
-                Tool(
-                    name="get_workflow_run",
-                    description="Get details of a specific workflow run",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "run_id": {
-                                "type": "integer",
-                                "description": "Workflow run ID",
-                            },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
                         },
-                        "required": ["owner", "repo", "run_id"],
-                    },
-                ),
-                Tool(
-                    name="cancel_workflow_run",
-                    description="Cancel a running workflow",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "run_id": {
-                                "type": "integer",
-                                "description": "Workflow run ID to cancel",
-                            },
+                        "workflow_id": {
+                            "type": "string",
+                            "description": "Workflow filename or ID (e.g., 'deploy.yml')",
                         },
-                        "required": ["owner", "repo", "run_id"],
-                    },
-                ),
-                Tool(
-                    name="rerun_workflow",
-                    description="Re-run a workflow",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "run_id": {
-                                "type": "integer",
-                                "description": "Workflow run ID to re-run",
-                            },
+                        "ref": {
+                            "type": "string",
+                            "description": "Git reference (branch or tag)",
+                            "default": "main",
                         },
-                        "required": ["owner", "repo", "run_id"],
-                    },
-                ),
-                Tool(
-                    name="get_workflow_jobs",
-                    description="Get jobs for a workflow run",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "run_id": {
-                                "type": "integer",
-                                "description": "Workflow run ID",
-                            },
+                        "inputs": {
+                            "type": "object",
+                            "description": "Workflow inputs as key-value pairs",
+                            "additionalProperties": True,
                         },
-                        "required": ["owner", "repo", "run_id"],
                     },
-                ),
-                Tool(
-                    name="trigger_repository_dispatch",
-                    description="Trigger a repository_dispatch event",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "owner": {
-                                "type": "string",
-                                "description": "Repository owner",
-                            },
-                            "repo": {
-                                "type": "string",
-                                "description": "Repository name",
-                            },
-                            "event_type": {
-                                "type": "string",
-                                "description": "Custom event type name",
-                            },
-                            "client_payload": {
-                                "type": "object",
-                                "description": "Custom payload data",
-                                "additionalProperties": True,
-                            },
+                    "required": ["owner", "repo", "workflow_id"],
+                },
+            ),
+            Tool(
+                name="get_workflow_runs",
+                description="Get recent workflow runs for a repository",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
                         },
-                        "required": ["owner", "repo", "event_type"],
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
+                        },
+                        "workflow_id": {
+                            "type": "string",
+                            "description": "Optional: Filter by specific workflow file",
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "completed",
+                                "action_required",
+                                "cancelled",
+                                "failure",
+                                "neutral",
+                                "skipped",
+                                "success",
+                                "in_progress",
+                                "queued",
+                            ],
+                            "description": "Optional: Filter by status",
+                        },
+                        "per_page": {
+                            "type": "number",
+                            "description": "Number of results (max 100)",
+                            "default": 10,
+                        },
                     },
-                ),
-            ]
-        )
+                    "required": ["owner", "repo"],
+                },
+            ),
+            Tool(
+                name="get_workflow_run",
+                description="Get details of a specific workflow run",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
+                        },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
+                        },
+                        "run_id": {
+                            "type": "integer",
+                            "description": "Workflow run ID",
+                        },
+                    },
+                    "required": ["owner", "repo", "run_id"],
+                },
+            ),
+            Tool(
+                name="cancel_workflow_run",
+                description="Cancel a running workflow",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
+                        },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
+                        },
+                        "run_id": {
+                            "type": "integer",
+                            "description": "Workflow run ID to cancel",
+                        },
+                    },
+                    "required": ["owner", "repo", "run_id"],
+                },
+            ),
+            Tool(
+                name="rerun_workflow",
+                description="Re-run a workflow",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
+                        },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
+                        },
+                        "run_id": {
+                            "type": "integer",
+                            "description": "Workflow run ID to re-run",
+                        },
+                    },
+                    "required": ["owner", "repo", "run_id"],
+                },
+            ),
+            Tool(
+                name="get_workflow_jobs",
+                description="Get jobs for a workflow run",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
+                        },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
+                        },
+                        "run_id": {
+                            "type": "integer",
+                            "description": "Workflow run ID",
+                        },
+                    },
+                    "required": ["owner", "repo", "run_id"],
+                },
+            ),
+            Tool(
+                name="trigger_repository_dispatch",
+                description="Trigger a repository_dispatch event",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Repository owner",
+                        },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name",
+                        },
+                        "event_type": {
+                            "type": "string",
+                            "description": "Custom event type name",
+                        },
+                        "client_payload": {
+                            "type": "object",
+                            "description": "Custom payload data",
+                            "additionalProperties": True,
+                        },
+                    },
+                    "required": ["owner", "repo", "event_type"],
+                },
+            ),
+        ]
     
     @server.call_tool()
-    async def call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
+    async def call_tool(name: str, arguments: dict) -> Sequence[TextContent]:
         """Handle tool calls"""
         
         try:
@@ -330,9 +326,7 @@ def create_mcp_server(github_token: str) -> Server:
                     "workflows": workflows,
                 }
                 
-                return CallToolResult(
-                    content=[TextContent(type="text", text=json.dumps(result, indent=2))]
-                )
+                return [TextContent(type="text", text=json.dumps(result, indent=2))]
             
             elif name == "trigger_workflow":
                 owner = arguments["owner"]
@@ -351,9 +345,7 @@ def create_mcp_server(github_token: str) -> Server:
                 if inputs:
                     message += f"\nInputs: {json.dumps(inputs, indent=2)}"
                 
-                return CallToolResult(
-                    content=[TextContent(type="text", text=message)]
-                )
+                return [TextContent(type="text", text=message)]
             
             elif name == "get_workflow_runs":
                 owner = arguments["owner"]
@@ -393,9 +385,7 @@ def create_mcp_server(github_token: str) -> Server:
                     "runs": runs,
                 }
                 
-                return CallToolResult(
-                    content=[TextContent(type="text", text=json.dumps(result, indent=2))]
-                )
+                return [TextContent(type="text", text=json.dumps(result, indent=2))]
             
             elif name == "get_workflow_run":
                 owner = arguments["owner"]
@@ -424,9 +414,7 @@ def create_mcp_server(github_token: str) -> Server:
                     "run_attempt": data.get("run_attempt"),
                 }
                 
-                return CallToolResult(
-                    content=[TextContent(type="text", text=json.dumps(result, indent=2))]
-                )
+                return [TextContent(type="text", text=json.dumps(result, indent=2))]
             
             elif name == "cancel_workflow_run":
                 owner = arguments["owner"]
@@ -438,12 +426,10 @@ def create_mcp_server(github_token: str) -> Server:
                     f"/repos/{owner}/{repo}/actions/runs/{run_id}/cancel"
                 )
                 
-                return CallToolResult(
-                    content=[TextContent(
-                        type="text",
-                        text=f"✅ Workflow run #{run_id} in {owner}/{repo} cancelled successfully"
-                    )]
-                )
+                return [TextContent(
+                    type="text",
+                    text=f"✅ Workflow run #{run_id} in {owner}/{repo} cancelled successfully"
+                )]
             
             elif name == "rerun_workflow":
                 owner = arguments["owner"]
@@ -455,12 +441,10 @@ def create_mcp_server(github_token: str) -> Server:
                     f"/repos/{owner}/{repo}/actions/runs/{run_id}/rerun"
                 )
                 
-                return CallToolResult(
-                    content=[TextContent(
-                        type="text",
-                        text=f"✅ Workflow run #{run_id} in {owner}/{repo} queued for re-run"
-                    )]
-                )
+                return [TextContent(
+                    type="text",
+                    text=f"✅ Workflow run #{run_id} in {owner}/{repo} queued for re-run"
+                )]
             
             elif name == "get_workflow_jobs":
                 owner = arguments["owner"]
@@ -499,9 +483,7 @@ def create_mcp_server(github_token: str) -> Server:
                     "jobs": jobs,
                 }
                 
-                return CallToolResult(
-                    content=[TextContent(type="text", text=json.dumps(result, indent=2))]
-                )
+                return [TextContent(type="text", text=json.dumps(result, indent=2))]
             
             elif name == "trigger_repository_dispatch":
                 owner = arguments["owner"]
@@ -519,22 +501,14 @@ def create_mcp_server(github_token: str) -> Server:
                 if client_payload:
                     message += f"\nPayload: {json.dumps(client_payload, indent=2)}"
                 
-                return CallToolResult(
-                    content=[TextContent(type="text", text=message)]
-                )
+                return [TextContent(type="text", text=message)]
             
             else:
-                return CallToolResult(
-                    content=[TextContent(type="text", text=f"❌ Unknown tool: {name}")],
-                    isError=True
-                )
+                raise ValueError(f"Unknown tool: {name}")
         
         except Exception as e:
             logger.error(f"Tool execution error: {str(e)}")
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ Error: {str(e)}")],
-                isError=True
-            )
+            raise RuntimeError(f"Tool execution failed: {str(e)}")
     
     return server
 
@@ -549,49 +523,108 @@ async def health_check():
     }
 
 
-@app.get("/mcp/sse")
-async def mcp_sse_endpoint(
-    request: Request,
-    authorization: Optional[str] = Header(None)
-):
-    """MCP SSE endpoint"""
+@app.get("/sse")
+async def handle_sse(request: Request):
+    """SSE endpoint for MCP - Compatible with Cline"""
     
-    # Extract GitHub token from Authorization header
-    if not authorization:
-        # Try environment variable as fallback
+    # Extract GitHub token
+    github_token = request.query_params.get("token")
+    
+    if not github_token:
+        auth_header = request.headers.get("authorization")
+        if auth_header:
+            github_token = auth_header.replace("Bearer ", "").strip()
+    
+    if not github_token:
         github_token = os.getenv("GITHUB_TOKEN")
-        if not github_token:
-            raise HTTPException(
-                status_code=401,
-                detail="No GitHub token provided. Set Authorization header or GITHUB_TOKEN env var."
+    
+    if not github_token:
+        logger.error("❌ No GitHub token provided")
+        raise HTTPException(
+            status_code=401,
+            detail="No GitHub token provided"
+        )
+    
+    logger.info("=" * 60)
+    logger.info("🔄 NEW MCP SSE CONNECTION ATTEMPT")
+    logger.info(f"Headers: {dict(request.headers)}")
+    logger.info(f"Method: {request.method}")
+    logger.info(f"Path: {request.url.path}")
+    logger.info("=" * 60)
+    
+    # Create MCP server
+    mcp_server = create_mcp_server(github_token)
+    
+    # CRITICAL: Path must be exactly "/sse" to match the endpoint
+    sse = SseServerTransport("/sse")
+    
+    try:
+        logger.info("📡 Attempting to connect SSE transport...")
+        
+        async with sse.connect_sse(
+            request.scope,
+            request.receive,
+            request._send
+        ) as (read_stream, write_stream):
+            
+            logger.info("✅ SSE transport connected successfully!")
+            logger.info("🚀 Starting MCP server...")
+            
+            # Create initialization options
+            init_options = mcp_server.create_initialization_options()
+            logger.info(f"Init options: {init_options}")
+            
+            # Run MCP server
+            await mcp_server.run(
+                read_stream,
+                write_stream,
+                init_options
             )
-    else:
-        github_token = authorization.replace("Bearer ", "").strip()
-    
-    logger.info("New MCP SSE connection established")
-    
-    # Create MCP server with the provided token
-    server = create_mcp_server(github_token)
-    
-    # Create SSE transport
-    sse_transport = SseServerTransport("/mcp/messages")
-    
-    # Connect server to transport
-    await server.connect(sse_transport)
-    
-    # Return SSE response
-    return EventSourceResponse(
-        sse_transport.handle_sse(request),
-        media_type="text/event-stream"
-    )
+            
+            logger.info("✅ MCP server session completed normally")
+            
+    except Exception as e:
+        logger.error(f"❌ MCP ERROR: {type(e).__name__}: {e}", exc_info=True)
+        raise
 
 
-@app.post("/mcp/messages")
-async def mcp_messages_endpoint(request: Request):
-    """Handle MCP messages"""
-    # This endpoint is used by the SSE transport
-    return {"status": "ok"}
+@app.post("/sse")
+async def handle_sse_post(request: Request):
+    """Handle POST requests to SSE endpoint"""
+    try:
+        body = await request.json()
+        logger.info(f"📨 Received POST to /sse: {json.dumps(body, indent=2)}")
+        
+        return {
+            "jsonrpc": "2.0",
+            "id": body.get("id"),
+            "result": {"status": "received"}
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ POST handler error: {e}", exc_info=True)
+        return {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32600, "message": str(e)}
+        }
+# Remove the /sse/messages endpoints since SSE transport handles messages at /sse
+# @app.post("/sse/messages")  <-- DELETE THIS
 
+@app.get("/")
+async def root():
+    """Root endpoint with server info"""
+    return {
+        "name": "GitHub Workflows MCP Server",
+        "version": "1.0.0",
+        "mcp_endpoint": "http://localhost:8000/sse",
+        "transport": "SSE",
+        "endpoints": {
+            "health": "/health",
+            "sse": "/sse (GET for SSE connection, POST for messages)"
+        },
+        "status": "running"
+    }
 
 if __name__ == "__main__":
     import uvicorn
@@ -601,5 +634,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=port,
-        log_level="info"
+        log_level="info",
+        reload=True
     )
